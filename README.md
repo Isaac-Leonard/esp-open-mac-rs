@@ -1,3 +1,4 @@
+# esp-open-mac-rs
 This is an open source demonstration of using the esp32 wifi hardware peripherals.
 This is pretty much a one to one translation of https://github.com/esp32-open-mac/esp32-open-mac written in rust
 
