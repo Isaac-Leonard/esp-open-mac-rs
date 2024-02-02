@@ -1,3 +1,5 @@
+use std::arch::asm;
+
 use esp_idf_svc::sys::{
     configTICK_RATE_HZ, g_wifi_default_wpa_crypto_funcs, g_wifi_osi_funcs, wifi_init_config_t,
     BaseType_t, TickType_t, CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM,
@@ -127,7 +129,18 @@ extern "C" {
     // TODO: Check this is correct
     // I could only find one macro that set this to 0 and lots of different header definitions of this but no implementation
     // Note that some of the definitions had extra modifiers on them, I'm hoping this will just work
-    pub fn xPortGetCoreID() -> BaseType_t;
+    //    pub fn xPortGetCoreID() -> BaseType_t;
+}
+
+// Need to check that this assembly actually works
+#[inline(always)]
+pub unsafe extern "C" fn xPortGetCoreID() -> u32 {
+    let mut id: u32 = 0;
+    asm! (
+        "rsr.prid {id}",
+        "extui {id},{id},13,1",
+			id=out(reg) id);
+    return id;
 }
 
 // Can't implement default trait so we just use the original c macros name
