@@ -1,3 +1,8 @@
+use crate::{
+    hardware::hardware_mac_args,
+    mac::{open_mac_rx_callback, open_mac_tx_func_callback},
+};
+
 mod c_macro_replacements;
 mod hardware;
 mod mac;
@@ -13,4 +18,8 @@ fn main() {
     esp_idf_svc::log::EspLogger::initialize_default();
 
     log::info!("Hello, world!");
+    let open_hw_args = hardware_mac_args {
+        _rx_callback: open_mac_rx_callback,
+        _tx_func_callback: open_mac_tx_func_callback,
+    };
 }

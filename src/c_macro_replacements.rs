@@ -159,3 +159,6 @@ pub unsafe fn WIFI_INIT_CONFIG_DEFAULT() -> wifi_init_config_t {
         magic: WIFI_INIT_CONFIG_MAGIC as _,
     }
 }
+
+// For some reason bindgen doesn't convert this
+pub const BROADCAST_MAC: [u8; 6] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];

@@ -558,7 +558,7 @@ pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut hardware_mac_args)
     setup_tx_buffers();
 
     unsafe {
-        (pvParameter.as_mut().unwrap()._tx_func_callback.read())(wifi_hardware_tx_func);
+        (pvParameter.as_mut().unwrap()._tx_func_callback)(wifi_hardware_tx_func);
     }
     warn!("{}: Starting to receive messages", TAG);
 
@@ -620,13 +620,13 @@ pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut hardware_mac_args)
     }
 }
 
-pub type rx_callback = fn(packet: *mut wifi_promiscuous_pkt_t);
+pub type rx_callback = unsafe extern "C" fn(packet: *mut wifi_promiscuous_pkt_t);
 pub type tx_func = unsafe extern "C" fn(packet: *mut u8, len: u32) -> bool;
 
 pub type tx_func_callback = unsafe extern "C" fn(t: tx_func);
 
 #[repr(C)]
 pub struct hardware_mac_args {
-    _rx_callback: rx_callback,
-    _tx_func_callback: *mut tx_func_callback,
+    pub _rx_callback: rx_callback,
+    pub _tx_func_callback: tx_func_callback,
 }
