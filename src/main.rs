@@ -2,6 +2,7 @@ mod c_macro_replacements;
 mod hardware;
 mod mac;
 mod proprietary;
+mod wifi_80211;
 
 fn main() {
     // It is necessary to call this function once. Otherwise some patches to the runtime

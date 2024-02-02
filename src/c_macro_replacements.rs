@@ -90,6 +90,28 @@ macro_rules! xSemaphoreGive {
     };
 }
 
+#[macro_export]
+macro_rules! MAC2STR {
+    ($mac_addr:expr) => {
+        format!(
+            "{:#02x}:{:#02x}:{:#02x}:{:#02x}:{:#02x}:{:#02x}",
+            $mac_addr[0], $mac_addr[1], $mac_addr[2], $mac_addr[3], $mac_addr[4], $mac_addr[5],
+        )
+    };
+}
+
+#[macro_export]
+macro_rules! xQueueSendToBack {
+    ($xQueue:expr, $pvItemToQueue:expr, $xTicksToWait:expr) => {
+        esp_idf_svc::sys::xQueueGenericSend(
+            $xQueue,
+            $pvItemToQueue,
+            $xTicksToWait,
+            $crate::c_macro_replacements::queueSEND_TO_BACK,
+        )
+    };
+}
+
 // Looks like the last 3 are not set so going to leave them out for now but leaving the full list documented here
 // CONFIG_ESP_WIFI_ENABLE_WPA3_SAE | WIFI_ENABLE_SPIRAM | WIFI_FTM_INITIATOR | WIFI_FTM_RESPONDER;
 const WIFI_FEATURE_CAPS: u64 = CONFIG_ESP_WIFI_ENABLE_WPA3_SAE as u64;

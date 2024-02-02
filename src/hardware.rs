@@ -92,7 +92,7 @@ pub struct dma_list_item {
 }
 
 impl dma_list_item {
-    unsafe fn new(packet: *mut core::ffi::c_void, next: *mut Self) -> Self {
+    pub unsafe fn new(packet: *mut core::ffi::c_void, next: *mut Self) -> Self {
         Self {
             size: 12,
             length: 12,
@@ -107,61 +107,61 @@ impl dma_list_item {
 
 #[repr(C)]
 #[derive(PartialEq)]
-enum hardware_queue_entry_type_t {
+pub enum hardware_queue_entry_type_t {
     RX_ENTRY,
     TX_ENTRY,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct rx_queue_entry_t {
+pub struct rx_queue_entry_t {
     interrupt_received: u32,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct tx_queue_entry_t {
+pub struct tx_queue_entry_t {
     packet: *mut u8,
     len: u32,
 }
 
 #[repr(C)]
-union content_t {
+pub union content_t {
     rx: rx_queue_entry_t,
     tx: tx_queue_entry_t,
 }
 
 #[repr(C)]
-struct hardware_queue_entry_t {
+pub struct hardware_queue_entry_t {
     typ: hardware_queue_entry_type_t,
     content: content_t,
 }
 
-static mut tx_queue_resources: SemaphoreHandle_t = ptr::null_mut();
-static mut rx_queue_resources: SemaphoreHandle_t = ptr::null_mut();
+pub static mut tx_queue_resources: SemaphoreHandle_t = ptr::null_mut();
+pub static mut rx_queue_resources: SemaphoreHandle_t = ptr::null_mut();
 
-static mut hardware_event_queue: QueueHandle_t = ptr::null_mut();
-static mut rx_chain_begin: *mut dma_list_item = ptr::null_mut();
+pub static mut hardware_event_queue: QueueHandle_t = ptr::null_mut();
+pub static mut rx_chain_begin: *mut dma_list_item = ptr::null_mut();
 
-static mut rx_chain_last: *mut dma_list_item = ptr::null_mut();
+pub static mut rx_chain_last: *mut dma_list_item = ptr::null_mut();
 
-static interrupt_count: AtomicI32 = AtomicI32::new(0);
+pub static interrupt_count: AtomicI32 = AtomicI32::new(0);
 
 // TODO: have more than 1 TX slot
-static mut tx_item: *mut dma_list_item = ptr::null_mut();
+pub static mut tx_item: *mut dma_list_item = ptr::null_mut();
 
 // Must be at least 24 bits long
-static mut tx_buffer: *mut u8 = ptr::null_mut();
+pub static mut tx_buffer: *mut u8 = ptr::null_mut();
 
-static mut last_transmit_timestamp: u64 = 0;
-static mut seqnum: u32 = 0;
+pub static mut last_transmit_timestamp: u64 = 0;
+pub static mut seqnum: u32 = 0;
 
-unsafe extern "C" fn setup_tx_buffers() {
+pub unsafe extern "C" fn setup_tx_buffers() {
     tx_item = calloc(1, size_of::<dma_list_item>() as _).cast();
     tx_buffer = calloc(1, 1600 as _) as _;
 }
 
-unsafe extern "C" fn log_dma_item(item: &dma_list_item) {
+pub unsafe extern "C" fn log_dma_item(item: &dma_list_item) {
     let item = item.clone();
     let length = item.length;
     let size = item.size;
@@ -171,7 +171,7 @@ unsafe extern "C" fn log_dma_item(item: &dma_list_item) {
     );
 }
 
-unsafe extern "C" fn transmit_packet(packet: *mut u8, buffer_len: u32) -> bool {
+pub unsafe extern "C" fn transmit_packet(packet: *mut u8, buffer_len: u32) -> bool {
     // 50 ms for safety, it's likely much shorter
     // TODO: figure out how we can know we can recycle the packet
     if esp_timer_get_time() as u64 - last_transmit_timestamp < 50000 {
@@ -235,7 +235,7 @@ unsafe extern "C" fn transmit_packet(packet: *mut u8, buffer_len: u32) -> bool {
 // Should use IRAM_ATTR
 // Can't find good documentation on each section but this looks like how its done in the HAL code
 #[link_section = ".iram1.interrupt_active"]
-unsafe extern "C" fn wifi_interrupt_handler(args: *mut core::ffi::c_void) {
+pub unsafe extern "C" fn wifi_interrupt_handler(args: *mut core::ffi::c_void) {
     interrupt_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let cause = read_register(WIFI_DMA_INT_STATUS);
     if cause == 0 {
@@ -265,7 +265,7 @@ unsafe extern "C" fn wifi_interrupt_handler(args: *mut core::ffi::c_void) {
     }
 }
 
-unsafe fn setup_interrupt() {
+pub unsafe fn setup_interrupt() {
     // See the documentation of intr_matrix_set in esp-idf/components/esp_rom/include/esp32s3/rom/ets_sys.h
     intr_matrix_set(0, ETS_WIFI_MAC_INTR_SOURCE, ETS_WMAC_INUM);
 
@@ -289,7 +289,7 @@ unsafe fn setup_interrupt() {
     xt_ints_on(1 << ETS_WMAC_INUM);
 }
 
-unsafe extern "C" fn print_rx_chain(mut item: *mut dma_list_item) {
+pub unsafe extern "C" fn print_rx_chain(mut item: *mut dma_list_item) {
     // Debug print to display RX linked list
     let mut index: core::ffi::c_int = 0;
     debug!(
@@ -325,11 +325,11 @@ unsafe extern "C" fn print_rx_chain(mut item: *mut dma_list_item) {
     );
 }
 
-unsafe extern "C" fn set_rx_base_address(item: *mut dma_list_item) {
+pub unsafe extern "C" fn set_rx_base_address(item: *mut dma_list_item) {
     write_register(WIFI_BASE_RX_DSCR, item as u32);
 }
 
-unsafe extern "C" fn setup_rx_chain() {
+pub unsafe extern "C" fn setup_rx_chain() {
     // This function sets up the linked list needed for the Wi-Fi MAC RX functionality
     let mut prev: *mut dma_list_item = ptr::null_mut();
     for i in 0..RX_BUFFER_AMOUNT {
@@ -351,7 +351,7 @@ unsafe extern "C" fn setup_rx_chain() {
     rx_chain_begin = prev;
 }
 
-unsafe extern "C" fn update_rx_chain() {
+pub unsafe extern "C" fn update_rx_chain() {
     write_register(
         WIFI_MAC_BITMASK_084,
         read_register(WIFI_MAC_BITMASK_084) | 0x1,
@@ -360,7 +360,7 @@ unsafe extern "C" fn update_rx_chain() {
     while read_register(WIFI_MAC_BITMASK_084) & 0x1 != 0 {}
 }
 
-unsafe extern "C" fn handle_rx_messages(rxcb: rx_callback) {
+pub unsafe extern "C" fn handle_rx_messages(rxcb: rx_callback) {
     let mut current: *mut dma_list_item = rx_chain_begin;
 
     // This is a workaround for when we receive a lot of packets; otherwise we get stuck in this function,
@@ -420,7 +420,7 @@ unsafe extern "C" fn handle_rx_messages(rxcb: rx_callback) {
     // TODO enable interrupt
 }
 
-unsafe extern "C" fn wifi_hardware_tx_func(packet: *mut u8, len: u32) -> bool {
+pub unsafe extern "C" fn wifi_hardware_tx_func(packet: *mut u8, len: u32) -> bool {
     if xSemaphoreTake!(tx_queue_resources, 1) == 0 {
         error!("{}, TX semaphore full!", TAG);
         return false;
@@ -445,7 +445,7 @@ unsafe extern "C" fn wifi_hardware_tx_func(packet: *mut u8, len: u32) -> bool {
     return true;
 }
 
-unsafe extern "C" fn set_enable_mac_addr_filter(slot: u8, enable: bool) {
+pub unsafe extern "C" fn set_enable_mac_addr_filter(slot: u8, enable: bool) {
     // This will allow packets that match the filter to be queued in our reception queue
     // will also ack them once they arrive
     assert!(slot <= 1);
@@ -459,7 +459,7 @@ unsafe extern "C" fn set_enable_mac_addr_filter(slot: u8, enable: bool) {
     }
 }
 
-unsafe extern "C" fn set_mac_addr_filter(slot: u8, addr: *mut u8) {
+pub unsafe extern "C" fn set_mac_addr_filter(slot: u8, addr: *mut u8) {
     assert!(slot <= 1);
     write_register(
         // This feels like I'm doing something wrong
@@ -620,13 +620,13 @@ pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut hardware_mac_args)
     }
 }
 
-type rx_callback = fn(packet: *mut wifi_promiscuous_pkt_t);
-type tx_func = unsafe extern "C" fn(packet: *mut u8, len: u32) -> bool;
+pub type rx_callback = fn(packet: *mut wifi_promiscuous_pkt_t);
+pub type tx_func = unsafe extern "C" fn(packet: *mut u8, len: u32) -> bool;
 
-type tx_func_callback = unsafe extern "C" fn(t: tx_func);
+pub type tx_func_callback = unsafe extern "C" fn(t: tx_func);
 
 #[repr(C)]
-struct hardware_mac_args {
+pub struct hardware_mac_args {
     _rx_callback: rx_callback,
     _tx_func_callback: *mut tx_func_callback,
 }
