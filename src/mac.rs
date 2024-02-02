@@ -133,7 +133,7 @@ pub unsafe extern "C" fn open_mac_tx_func_callback(t: tx_func) {
     tx = Some(t);
 }
 
-unsafe extern "C" fn mac_task(pvParameters: *mut core::ffi::c_void) {
+pub unsafe extern "C" fn mac_task(pvParameters: *mut core::ffi::c_void) {
     error!(
         "{}: Starting mac_task, running on {}",
         TAG,

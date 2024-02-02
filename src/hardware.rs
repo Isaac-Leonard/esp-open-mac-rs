@@ -333,20 +333,23 @@ pub unsafe extern "C" fn setup_rx_chain() {
     // This function sets up the linked list needed for the Wi-Fi MAC RX functionality
     let mut prev: *mut dma_list_item = ptr::null_mut();
     for i in 0..RX_BUFFER_AMOUNT {
-        let item: *mut dma_list_item = malloc(size_of::<dma_list_item> as _).cast();
-        item.as_mut().unwrap().has_data = 0;
-        item.as_mut().unwrap().owner = 1;
-        item.as_mut().unwrap().size = 1600;
-        item.as_mut().unwrap().length = item.as_mut().unwrap().size;
+        // Malloc fails for this for some reason but works perfectly fine later
+        let mut item = Box::new(MaybeUninit::<dma_list_item>::uninit().assume_init());
+        info!("after box");
+        item.has_data = 0;
+        item.owner = 1;
+        item.size = 1600;
+        item.length = item.size;
 
         let mut packet: *mut u8 = malloc(1600) as _; // TODO verify that this does not need to be bigger
-        item.as_mut().unwrap().packet = packet.cast();
-        item.as_mut().unwrap().next = prev;
-        prev = item;
+        item.packet = packet.cast();
+        item.next = prev;
+        prev = item.as_mut() as *mut dma_list_item;
         if rx_chain_last.is_null() {
-            rx_chain_last = item;
+            rx_chain_last = item.as_mut() as _;
         }
     }
+    info!["After for loop"];
     set_rx_base_address(prev);
     rx_chain_begin = prev;
 }
@@ -479,7 +482,8 @@ pub unsafe extern "C" fn set_mac_addr_filter(slot: u8, addr: *mut u8) {
     ); // ?
 }
 
-pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut hardware_mac_args) {
+pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut core::ffi::c_void) {
+    let pvParameter: *mut hardware_mac_args = pvParameter.cast();
     let mut cfg: wifi_init_config_t = WIFI_INIT_CONFIG_DEFAULT();
     cfg.static_rx_buf_num = 2; // we won't use these buffers, so reduce the amount from default 10, so we don't waste as much memory
                                // Disable AMPDU and AMSDU for now, we don't support this (yet)
@@ -537,6 +541,7 @@ pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut hardware_mac_args)
 
     // Send a packet, to make sure the proprietary stack has fully initialized all hardware
     // Original code had no abort but will just do this for now
+    info!("Sending test packet on proprietary stack");
     EspError::from(esp_wifi_80211_tx(
         wifi_interface_t_WIFI_IF_STA,
         initframe.as_mut_ptr().cast(),
@@ -544,6 +549,7 @@ pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut hardware_mac_args)
         true,
     ))
     .map(|x| x.panic());
+    info!("Done sending test packet on proprietary stack");
 
     // From here, we start taking over the hardware; no more proprietary code is executed from now on
     setup_interrupt();
@@ -555,12 +561,14 @@ pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut hardware_mac_args)
     pp_post(0xf, 0);
 
     setup_rx_chain();
+    info!["RX chain is set up"];
     setup_tx_buffers();
+    info!["TX buffers are set up"];
 
     unsafe {
-        (pvParameter.as_mut().unwrap()._tx_func_callback)(wifi_hardware_tx_func);
+        (pvParameter.read()._tx_func_callback)(wifi_hardware_tx_func);
     }
-    warn!("{}: Starting to receive messages", TAG);
+    warn!("Starting to receive messages");
 
     set_mac_addr_filter(0, module_mac_addr.as_mut_ptr());
     set_enable_mac_addr_filter(0, true);
