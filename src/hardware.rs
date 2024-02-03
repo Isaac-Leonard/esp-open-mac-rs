@@ -62,6 +62,42 @@ unsafe fn read_register(address: *const u32) -> u32 {
     address.read_volatile()
 }
 
+// TODO: Remove theses
+// -#define WIFI_DMA_OUTLINK 0x3ff73d20
+//-#define WIFI_TX_CONFIG_0 0x3ff73d1c
+
+const fn _MMIO_DWORD(mem_addr: u32) -> *mut u32 {
+    mem_addr as *mut u32
+}
+const fn _MMIO_ADDR(mem_addr: u32) -> *mut u32 {
+    mem_addr as *mut u32
+}
+
+// TODO: Remove these constants
+// -#define MAC_TX_PLCP1 0x3ff74258
+// -#define MAC_TX_PLCP2 0x3ff7425c
+// -#define MAC_TX_DURATION 0x3ff74268
+// there are 5 TX slots
+// format: _BASE addresses are the base addresses
+//         _OS amounts is the amount of 4-byte words in the offset between slots
+// So for example, if the MAC_TX_PLCP0 for slot 0 is at 0x3ff73d20
+// then the MAC_TX_PLCP0 for slot 1 will be at 0x3ff73d20 - 2 * 4 = 0x3ff73d18
+
+const MAC_TX_PLCP0_BASE: *mut u32 = _MMIO_ADDR(0x3ff73d20);
+const MAC_TX_PLCP0_OS: i32 = -2;
+
+const WIFI_TX_CONFIG_BASE: *mut u32 = _MMIO_ADDR(0x3ff73d1c);
+const WIFI_TX_CONFIG_OS: i32 = -2;
+
+const MAC_TX_PLCP1_BASE: *mut u32 = _MMIO_ADDR(0x3ff74258);
+const MAC_TX_PLCP1_OS: i32 = -0xf;
+
+const MAC_TX_PLCP2_BASE: *mut u32 = _MMIO_ADDR(0x3ff7425c);
+const MAC_TX_PLCP2_OS: i32 = -0xf;
+
+const MAC_TX_DURATION_BASE: *mut u32 = _MMIO_ADDR(0x3ff74268);
+const MAC_TX_DURATION_OS: i32 = -0xf;
+
 const WIFI_DMA_OUTLINK: *mut u32 = 0x3ff73d20 as _;
 const WIFI_TX_CONFIG_0: *mut u32 = 0x3ff73d1c as _;
 
