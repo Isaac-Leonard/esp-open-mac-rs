@@ -112,6 +112,12 @@ const WIFI_MAC_BITMASK_084: *mut u32 = 0x3ff73084 as _;
 const WIFI_NEXT_RX_DSCR: *const u32 = 0x3ff7308c as _;
 const WIFI_LAST_RX_DSCR: *mut u32 = 0x3ff73090 as _;
 const WIFI_BASE_RX_DSCR: *mut u32 = 0x3ff73088 as _;
+const WIFI_TXQ_GET_STATE_COMPLETE: *mut u32 = _MMIO_DWORD(0x3ff73cc8);
+const WIFI_TXQ_CLR_STATE_COMPLETE: *mut u32 = _MMIO_DWORD(0x3ff73cc4);
+
+// Collision or timeout
+const WIFI_TXQ_GET_STATE_ERROR: *mut u32 = _MMIO_DWORD(0x3ff73ccc0);
+const WIFI_TXQ_CLR_STATE_ERROR: *mut u32 = _MMIO_DWORD(0x3ff73ccbc);
 
 const WIFI_MAC_ADDR_SLOT_0: *mut u32 = 0x3ff73040 as _;
 const WIFI_MAC_ADDR_ACK_ENABLE_SLOT_0: u32 = 0x3ff73064;
