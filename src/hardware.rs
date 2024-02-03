@@ -4,6 +4,7 @@
 use core::mem::size_of;
 use core::ptr;
 use std::mem::MaybeUninit;
+use std::ptr::null_mut;
 use std::sync::atomic::AtomicI32;
 
 use esp_idf_svc::sys::calloc;
@@ -129,6 +130,7 @@ pub struct dma_list_item {
     _unknown: u8,
     has_data: u8,
     owner: u8, // What does this mean?
+    // TODO: Feel like this property should just be typed as *mut u8
     packet: *mut core::ffi::c_void,
     next: *mut dma_list_item,
 }
@@ -166,7 +168,14 @@ pub struct tx_queue_entry_t {
     packet: *mut u8,
     len: u32,
 }
-
+impl Default for tx_queue_entry_t {
+    fn default() -> Self {
+        Self {
+            packet: null_mut(),
+            len: 0,
+        }
+    }
+}
 #[repr(C)]
 pub union content_t {
     rx: rx_queue_entry_t,
@@ -189,19 +198,36 @@ pub static mut rx_chain_last: *mut dma_list_item = ptr::null_mut();
 
 pub static interrupt_count: AtomicI32 = AtomicI32::new(0);
 
-// TODO: have more than 1 TX slot
-pub static mut tx_item: *mut dma_list_item = ptr::null_mut();
+const TX_SLOT_CNT: u32 = 5;
+#[repr(C, align(4))]
+struct tx_hardware_slot_t {
+    // dma_list_item must be 4-byte aligned (it's passed to hardware that only takes those addresses)
+    _alignment: [u8; 0],
+    // This is meant to have alignment of 4 but rust-analyzer tells me its got alignment 1
+    // TODO: investigate further
+    dma: dma_list_item,
 
-// Must be at least 24 bits long
-pub static mut tx_buffer: *mut u8 = ptr::null_mut();
+    packet: tx_queue_entry_t,
+    in_use: bool,
+}
+impl Default for tx_hardware_slot_t {
+    fn default() -> Self {
+        tx_hardware_slot_t {
+            // dma_list_item must be 4-byte aligned (it's passed to hardware that only takes those addresses)
+            _alignment: [],
+            // This is meant to have alignment of 4 but rust-analyzer tells me its got alignment 1
+            // TODO: investigate further
+            dma: dma_list_item::default(),
+
+            packet: tx_queue_entry_t::default(),
+            in_use: false,
+        }
+    }
+}
+static mut tx_slots: [tx_hardware_slot_t; TX_SLOT_CNT as usize] = Default::default();
 
 pub static mut last_transmit_timestamp: u64 = 0;
 pub static mut seqnum: u32 = 0;
-
-pub unsafe extern "C" fn setup_tx_buffers() {
-    tx_item = calloc(1, size_of::<dma_list_item>() as _).cast();
-    tx_buffer = calloc(1, 1600 as _) as _;
-}
 
 pub unsafe extern "C" fn log_dma_item(item: &dma_list_item) {
     let item = item.clone();
@@ -213,64 +239,101 @@ pub unsafe extern "C" fn log_dma_item(item: &dma_list_item) {
     );
 }
 
-pub unsafe extern "C" fn transmit_packet(packet: *mut u8, buffer_len: u32) -> bool {
-    // 50 ms for safety, it's likely much shorter
-    // TODO: figure out how we can know we can recycle the packet
-    if esp_timer_get_time() as u64 - last_transmit_timestamp < 50000 {
-        info!("{}, Not transmitting packet, last transmit too recent", TAG);
-        return false;
-    }
+// Should we ensure this function can only be called once at a time?
+// It appears as though there might be room for the buffers to over write each other if the function is called twice at the same time
+pub unsafe extern "C" fn transmit_packet(tx_buffer: *mut u8, buffer_len: u32) -> bool {
+    let mut slot: u32 = 0;
 
-    memcpy(tx_buffer.cast(), packet.cast(), buffer_len);
+    // Find the first free TX slot
+    let slot = tx_slots.iter_mut().position(|x| x.in_use);
+    let Some(slot) = slot else {
+        error!("all tx slots full");
+        return false;
+    };
+    info!("using tx slot {}", slot);
+
+    let mut tx_item = &mut tx_slots[slot].dma;
+    // dma_list_item must be 4-byte aligned (it's passed to hardware that only takes those addresses)
+    assert!((tx_item as *mut dma_list_item) as usize & 0b11 == 0);
+
+    tx_slots[slot].in_use = true;
+    tx_slots[slot].packet.packet = tx_buffer;
+    tx_slots[slot].packet.len = buffer_len;
     let size_len: u32 = buffer_len + 32;
 
-    // Update sequence number
-    // This was a simple array access, had to change it to this for rust
-    // Return it to an array access once converting to safer code
-    tx_buffer.add(22).write_volatile((seqnum as u8 & 0x0f) << 4);
-    tx_buffer
+    // Set & update sequence number
+    tx_slots[slot]
+        .packet
+        .packet
+        .add(22)
+        .write(((seqnum & 0x0f) << 4) as u8);
+    tx_slots[slot]
+        .packet
+        .packet
         .add(23)
-        .write_volatile(((seqnum & 0xff0) >> 4) as u8);
+        .write(((seqnum & 0xff0) >> 4) as u8);
     seqnum += 1;
     if seqnum > 0xfff {
         seqnum = 0
-    };
+    }
 
-    info!("{}: len={}", TAG, buffer_len);
-    info!("to-transmit: {:x?}, {}", tx_buffer, buffer_len);
+    info!("len={}", buffer_len);
+    info!("Replace this with hex dump of the packet");
 
-    tx_item.as_mut().unwrap().owner = 1;
-    tx_item.as_mut().unwrap().has_data = 1;
-    tx_item.as_mut().unwrap().length = buffer_len as _;
-    tx_item.as_mut().unwrap().size = size_len as u16;
-    tx_item.as_mut().unwrap().packet = tx_buffer.cast();
-    tx_item.as_mut().unwrap().next = ptr::null_mut();
+    tx_item.owner = 1;
+    tx_item.has_data = 1;
+    tx_item.length = buffer_len as u16;
+    tx_item.size = size_len as u16;
+    // TODO: Feel like this property should just be typed as *mut u8
+    tx_item.packet = tx_buffer.cast();
+    tx_item.next = null_mut();
 
-    write_register(WIFI_TX_CONFIG_0, read_register(WIFI_TX_CONFIG_0) | 0xa);
+    WIFI_TX_CONFIG_BASE
+        .offset(WIFI_TX_CONFIG_OS as isize * slot as isize)
+        .write_volatile(
+            WIFI_TX_CONFIG_BASE
+                .offset(WIFI_TX_CONFIG_OS as isize * slot as isize)
+                .read_volatile()
+                | 0xa,
+        );
 
-    write_register(WIFI_DMA_OUTLINK, (tx_item as u32 & 0xfffff) | (0x00600000));
+    MAC_TX_PLCP0_BASE
+        .offset(MAC_TX_PLCP0_OS as isize * slot as isize)
+        .add(((tx_item as *const dma_list_item) as usize & 0xfffff) | (0x00600000));
+    MAC_TX_PLCP1_BASE
+        .offset(MAC_TX_PLCP1_OS as isize * slot as isize)
+        .write_volatile(0x10000000 | buffer_len);
+    MAC_TX_PLCP2_BASE
+        .offset(MAC_TX_PLCP2_OS as isize * slot as isize)
+        .write_volatile(0x00000020);
+    MAC_TX_DURATION_BASE
+        .offset(MAC_TX_DURATION_OS as isize * slot as isize)
+        .write_volatile(0);
 
-    write_register(MAC_TX_PLCP1, 0x10000000 | buffer_len);
-    write_register(MAC_TX_PLCP2, 0x00000020);
-    write_register(MAC_TX_DURATION, 0);
+    WIFI_TX_CONFIG_BASE
+        .offset(WIFI_TX_CONFIG_OS as isize * slot as isize)
+        .write_volatile(
+            WIFI_TX_CONFIG_BASE
+                .offset(WIFI_TX_CONFIG_OS as isize * slot as isize)
+                .read_volatile()
+                | 0x02000000,
+        );
+    WIFI_TX_CONFIG_BASE
+        .offset(WIFI_TX_CONFIG_OS as isize * slot as isize)
+        .write_volatile(
+            WIFI_TX_CONFIG_BASE.offset(WIFI_TX_CONFIG_OS as isize * slot as isize) as u32
+                | 0x00003000,
+        );
 
-    write_register(
-        WIFI_TX_CONFIG_0,
-        read_register(WIFI_TX_CONFIG_0) | 0x02000000,
-    );
-
-    write_register(
-        WIFI_TX_CONFIG_0,
-        read_register(WIFI_TX_CONFIG_0) | 0x00003000,
-    );
-
-    // Transmit: setting the 0xc0000000 bit in WIFI_DMA_OUTLINK enables transmission
-    write_register(
-        WIFI_DMA_OUTLINK,
-        read_register(WIFI_DMA_OUTLINK) | 0xc0000000,
-    );
-    // TODO: instead of sleeping, figure out how to know that our packet was sent
-    last_transmit_timestamp = esp_timer_get_time() as u64;
+    // Transmit: setting the 0xc0000000 bit in MAC_TX_PLCP0 enables transmission
+    MAC_TX_PLCP0_BASE
+        .offset(MAC_TX_PLCP0_OS as isize * slot as isize)
+        .write_volatile(
+            MAC_TX_PLCP0_BASE
+                .offset(MAC_TX_PLCP0_OS as isize * slot as isize)
+                .read()
+                | 0xc0000000,
+        );
     true
 }
 
