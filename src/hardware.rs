@@ -32,6 +32,7 @@ use esp_idf_svc::sys::ESP_OK;
 use esp_idf_svc::sys::ETS_WIFI_MAC_INTR_SOURCE;
 use esp_idf_svc::sys::ETS_WMAC_INUM;
 use log::{debug, error, info, warn};
+use vcell::VolatileCell;
 
 use crate::c_macro_replacements::intr_matrix_set;
 use crate::c_macro_replacements::portTICK_PERIOD_MS;
@@ -40,6 +41,7 @@ use crate::c_macro_replacements::WIFI_INIT_CONFIG_DEFAULT;
 use crate::proprietary::_xt_interrupt_table;
 use crate::proprietary::pp_post;
 use crate::proprietary::xt_unhandled_interrupt;
+use crate::utils::Register;
 use crate::xQueueCreate;
 use crate::xQueueSendFromISR;
 use crate::xQueueSendToFront;
@@ -53,26 +55,9 @@ const RX_BUFFER_AMOUNT: usize = 10;
 const TAG: &str = "hardware.c";
 pub const module_mac_addr: [u8; 6] = [0x00, 0x23, 0x45, 0x67, 0x89, 0xab];
 
-#[inline]
-unsafe fn write_register(address: *mut u32, value: u32) {
-    address.write_volatile(value);
-}
-
-#[inline]
-unsafe fn read_register(address: *const u32) -> u32 {
-    address.read_volatile()
-}
-
 // TODO: Remove theses
 // -#define WIFI_DMA_OUTLINK 0x3ff73d20
 //-#define WIFI_TX_CONFIG_0 0x3ff73d1c
-
-const fn _MMIO_DWORD(mem_addr: u32) -> *mut u32 {
-    mem_addr as *mut u32
-}
-const fn _MMIO_ADDR(mem_addr: u32) -> *mut u32 {
-    mem_addr as *mut u32
-}
 
 // TODO: Remove these constants
 // -#define MAC_TX_PLCP1 0x3ff74258
@@ -84,44 +69,45 @@ const fn _MMIO_ADDR(mem_addr: u32) -> *mut u32 {
 // So for example, if the MAC_TX_PLCP0 for slot 0 is at 0x3ff73d20
 // then the MAC_TX_PLCP0 for slot 1 will be at 0x3ff73d20 - 2 * 4 = 0x3ff73d18
 
-const MAC_TX_PLCP0_BASE: *mut u32 = _MMIO_ADDR(0x3ff73d20);
+const MAC_TX_PLCP0_BASE: &Register<u32> = Register::at(0x3ff73d20);
 const MAC_TX_PLCP0_OS: i32 = -2;
 
-const WIFI_TX_CONFIG_BASE: *mut u32 = _MMIO_ADDR(0x3ff73d1c);
+const WIFI_TX_CONFIG_BASE: &Register<u32> = Register::at(0x3ff73d1c);
 const WIFI_TX_CONFIG_OS: i32 = -2;
 
-const MAC_TX_PLCP1_BASE: *mut u32 = _MMIO_ADDR(0x3ff74258);
+const MAC_TX_PLCP1_BASE: &Register<u32> = Register::at(0x3ff74258);
 const MAC_TX_PLCP1_OS: i32 = -0xf;
 
-const MAC_TX_PLCP2_BASE: *mut u32 = _MMIO_ADDR(0x3ff7425c);
+const MAC_TX_PLCP2_BASE: &Register<u32> = Register::at(0x3ff7425c);
 const MAC_TX_PLCP2_OS: i32 = -0xf;
 
-const MAC_TX_DURATION_BASE: *mut u32 = _MMIO_ADDR(0x3ff74268);
+const MAC_TX_DURATION_BASE: &Register<u32> = Register::at(0x3ff74268);
 const MAC_TX_DURATION_OS: i32 = -0xf;
 
-const WIFI_DMA_OUTLINK: *mut u32 = 0x3ff73d20 as _;
-const WIFI_TX_CONFIG_0: *mut u32 = 0x3ff73d1c as _;
+const WIFI_DMA_OUTLINK: &Register<u32> = Register::at(0x3ff73d20);
+const WIFI_TX_CONFIG_0: &Register<u32> = Register::at(0x3ff73d1c);
 
-const MAC_TX_PLCP1: *mut u32 = 0x3ff74258 as _;
-const MAC_TX_PLCP2: *mut u32 = 0x3ff7425c as _;
-const MAC_TX_DURATION: *mut u32 = 0x3ff74268 as _;
+const MAC_TX_PLCP1: &Register<u32> = Register::at(0x3ff74258);
+const MAC_TX_PLCP2: &Register<u32> = Register::at(0x3ff7425c);
+const MAC_TX_DURATION: &Register<u32> = Register::at(0x3ff74268);
 
-const WIFI_DMA_INT_STATUS: *const u32 = 0x3ff73c48 as _;
-const WIFI_DMA_INT_CLR: *mut u32 = 0x3ff73c4c as _;
+const WIFI_DMA_INT_STATUS: &Register<u32> = Register::at(0x3ff73c48);
+const WIFI_DMA_INT_CLR: &Register<u32> = Register::at(0x3ff73c4c);
 
-const WIFI_MAC_BITMASK_084: *mut u32 = 0x3ff73084 as _;
-const WIFI_NEXT_RX_DSCR: *const u32 = 0x3ff7308c as _;
-const WIFI_LAST_RX_DSCR: *mut u32 = 0x3ff73090 as _;
-const WIFI_BASE_RX_DSCR: *mut u32 = 0x3ff73088 as _;
-const WIFI_TXQ_GET_STATE_COMPLETE: *mut u32 = _MMIO_DWORD(0x3ff73cc8);
-const WIFI_TXQ_CLR_STATE_COMPLETE: *mut u32 = _MMIO_DWORD(0x3ff73cc4);
+const WIFI_MAC_BITMASK_084: &Register<u32> = Register::at(0x3ff73084 as _);
+const WIFI_NEXT_RX_DSCR: &Register<u32> = Register::at(0x3ff7308c);
+const WIFI_LAST_RX_DSCR: &Register<u32> = Register::at(0x3ff73090);
+const WIFI_BASE_RX_DSCR: &Register<u32> = Register::at(0x3ff73088);
+const WIFI_TXQ_GET_STATE_COMPLETE: &Register<u32> = Register::at(0x3ff73cc8);
+const WIFI_TXQ_CLR_STATE_COMPLETE: &Register<u32> = Register::at(0x3ff73cc4);
 
 // Collision or timeout
-const WIFI_TXQ_GET_STATE_ERROR: *mut u32 = _MMIO_DWORD(0x3ff73ccc0);
-const WIFI_TXQ_CLR_STATE_ERROR: *mut u32 = _MMIO_DWORD(0x3ff73ccbc);
+const WIFI_TXQ_GET_STATE_ERROR: &Register<u32> = Register::at(0x3ff73ccc0);
+const WIFI_TXQ_CLR_STATE_ERROR: &Register<u32> = Register::at(0x3ff73ccbc);
 
-const WIFI_MAC_ADDR_SLOT_0: *mut u32 = 0x3ff73040 as _;
-const WIFI_MAC_ADDR_ACK_ENABLE_SLOT_0: u32 = 0x3ff73064;
+const WIFI_MAC_ADDR_SLOT_0: &Register<u32> = Register::at(0x3ff73040);
+const WIFI_MAC_ADDR_ACK_ENABLE_SLOT_0: &Register<u32> = Register::at(0x3ff73064);
+
 #[repr(C, packed)]
 #[derive(Debug, Clone)]
 pub struct dma_list_item {
@@ -133,6 +119,19 @@ pub struct dma_list_item {
     // TODO: Feel like this property should just be typed as *mut u8
     packet: *mut core::ffi::c_void,
     next: *mut dma_list_item,
+}
+impl Default for dma_list_item {
+    fn default() -> Self {
+        Self {
+            size: 0,
+            length: 0,
+            _unknown: 0,
+            has_data: 0,
+            owner: 0,
+            packet: null_mut(),
+            next: null_mut(),
+        }
+    }
 }
 
 impl dma_list_item {
@@ -198,7 +197,7 @@ pub static mut rx_chain_last: *mut dma_list_item = ptr::null_mut();
 
 pub static interrupt_count: AtomicI32 = AtomicI32::new(0);
 
-const TX_SLOT_CNT: u32 = 5;
+const TX_SLOT_CNT: usize = 5;
 #[repr(C, align(4))]
 struct tx_hardware_slot_t {
     // dma_list_item must be 4-byte aligned (it's passed to hardware that only takes those addresses)
@@ -290,45 +289,47 @@ pub unsafe extern "C" fn transmit_packet(tx_buffer: *mut u8, buffer_len: u32) ->
 
     WIFI_TX_CONFIG_BASE
         .offset(WIFI_TX_CONFIG_OS as isize * slot as isize)
-        .write_volatile(
+        .set(
             WIFI_TX_CONFIG_BASE
                 .offset(WIFI_TX_CONFIG_OS as isize * slot as isize)
-                .read_volatile()
+                .read()
                 | 0xa,
         );
 
     MAC_TX_PLCP0_BASE
         .offset(MAC_TX_PLCP0_OS as isize * slot as isize)
-        .add(((tx_item as *const dma_list_item) as usize & 0xfffff) | (0x00600000));
+        .set(((tx_item as *const dma_list_item) as u32 & 0xfffff) | (0x00600000));
     MAC_TX_PLCP1_BASE
         .offset(MAC_TX_PLCP1_OS as isize * slot as isize)
-        .write_volatile(0x10000000 | buffer_len);
+        .set(0x10000000 | buffer_len);
     MAC_TX_PLCP2_BASE
         .offset(MAC_TX_PLCP2_OS as isize * slot as isize)
-        .write_volatile(0x00000020);
+        .set(0x00000020);
     MAC_TX_DURATION_BASE
         .offset(MAC_TX_DURATION_OS as isize * slot as isize)
-        .write_volatile(0);
+        .set(0);
 
     WIFI_TX_CONFIG_BASE
         .offset(WIFI_TX_CONFIG_OS as isize * slot as isize)
-        .write_volatile(
+        .set(
             WIFI_TX_CONFIG_BASE
                 .offset(WIFI_TX_CONFIG_OS as isize * slot as isize)
-                .read_volatile()
+                .read()
                 | 0x02000000,
         );
     WIFI_TX_CONFIG_BASE
         .offset(WIFI_TX_CONFIG_OS as isize * slot as isize)
-        .write_volatile(
-            WIFI_TX_CONFIG_BASE.offset(WIFI_TX_CONFIG_OS as isize * slot as isize) as u32
+        .set(
+            WIFI_TX_CONFIG_BASE
+                .offset(WIFI_TX_CONFIG_OS as isize * slot as isize)
+                .read()
                 | 0x00003000,
         );
 
     // Transmit: setting the 0xc0000000 bit in MAC_TX_PLCP0 enables transmission
     MAC_TX_PLCP0_BASE
         .offset(MAC_TX_PLCP0_OS as isize * slot as isize)
-        .write_volatile(
+        .set(
             MAC_TX_PLCP0_BASE
                 .offset(MAC_TX_PLCP0_OS as isize * slot as isize)
                 .read()
@@ -337,16 +338,34 @@ pub unsafe extern "C" fn transmit_packet(tx_buffer: *mut u8, buffer_len: u32) ->
     true
 }
 
+unsafe fn processTxComplete() {
+    let txq_state_complete = WIFI_TXQ_GET_STATE_COMPLETE.read();
+    warn!("tx complete = {}", txq_state_complete);
+    if txq_state_complete == 0 {
+        return;
+    }
+    let slot: usize = 31 - txq_state_complete.leading_zeros() as usize;
+    warn!("slot {} is now free again", slot);
+    let clear_mask: u32 = 1 << slot;
+    WIFI_TXQ_CLR_STATE_COMPLETE.set(WIFI_TXQ_CLR_STATE_COMPLETE.read() | clear_mask);
+    if slot < TX_SLOT_CNT {
+        tx_slots[slot].in_use = false;
+        esp_idf_svc::sys::free(tx_slots[slot].packet.packet.cast());
+        tx_slots[slot].packet.packet = null_mut();
+    }
+}
+
+// Copies packet content to internal buffer, so you can free `packet` immediately after calling this function
 // Should use IRAM_ATTR
 // Can't find good documentation on each section but this looks like how its done in the HAL code
 #[link_section = ".iram1.interrupt_active"]
 pub unsafe extern "C" fn wifi_interrupt_handler(args: *mut core::ffi::c_void) {
     interrupt_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let cause = read_register(WIFI_DMA_INT_STATUS);
+    let cause = WIFI_DMA_INT_STATUS.read();
     if cause == 0 {
         return;
     }
-    write_register(WIFI_DMA_INT_CLR, cause);
+    WIFI_DMA_INT_CLR.set(cause);
 
     if cause & 0x800 != 0 {
         // TODO handle this with open-source code
@@ -399,9 +418,9 @@ pub unsafe extern "C" fn print_rx_chain(mut item: *mut dma_list_item) {
     let mut index: core::ffi::c_int = 0;
     debug!(
         "rx-chain, base={} next={} last={}",
-        read_register(WIFI_BASE_RX_DSCR),
-        read_register(WIFI_NEXT_RX_DSCR),
-        read_register(WIFI_LAST_RX_DSCR)
+        WIFI_BASE_RX_DSCR.read(),
+        WIFI_NEXT_RX_DSCR.read(),
+        WIFI_LAST_RX_DSCR.read()
     );
     while !item.is_null() {
         // We unpack it for debugging
@@ -424,14 +443,15 @@ pub unsafe extern "C" fn print_rx_chain(mut item: *mut dma_list_item) {
     }
     debug!(
         "rx-chain, base={} next={} last={}",
-        read_register(WIFI_BASE_RX_DSCR),
-        read_register(WIFI_NEXT_RX_DSCR),
-        read_register(WIFI_LAST_RX_DSCR)
+        WIFI_BASE_RX_DSCR.read(),
+        WIFI_NEXT_RX_DSCR.read(),
+        WIFI_LAST_RX_DSCR.read()
     );
 }
 
 pub unsafe extern "C" fn set_rx_base_address(item: *mut dma_list_item) {
-    write_register(WIFI_BASE_RX_DSCR, item as u32);
+    // TODO: Should I change the type of this register?
+    WIFI_BASE_RX_DSCR.set(item as u32);
 }
 
 pub unsafe extern "C" fn setup_rx_chain() {
@@ -460,12 +480,9 @@ pub unsafe extern "C" fn setup_rx_chain() {
 }
 
 pub unsafe extern "C" fn update_rx_chain() {
-    write_register(
-        WIFI_MAC_BITMASK_084,
-        read_register(WIFI_MAC_BITMASK_084) | 0x1,
-    );
+    WIFI_MAC_BITMASK_084.xor_with(0x1);
     // Wait for confirmation from hardware
-    while read_register(WIFI_MAC_BITMASK_084) & 0x1 != 0 {}
+    while WIFI_MAC_BITMASK_084.read() & 0x1 != 0 {}
 }
 
 pub unsafe extern "C" fn handle_rx_messages(rxcb: rx_callback) {
@@ -499,9 +516,9 @@ pub unsafe extern "C" fn handle_rx_messages(rxcb: rx_callback) {
             if !rx_chain_begin.is_null() {
                 rx_chain_last.as_mut().unwrap().next = current;
                 update_rx_chain();
-                if read_register(WIFI_NEXT_RX_DSCR) == 0x3ff00000 {
+                if WIFI_NEXT_RX_DSCR.read() == 0x3ff00000 {
                     let mut last_dscr: *mut dma_list_item =
-                        read_register(WIFI_LAST_RX_DSCR) as *mut dma_list_item;
+                        WIFI_LAST_RX_DSCR.read() as *mut dma_list_item;
                     if current == last_dscr {
                         rx_chain_last = current;
                     } else {
@@ -557,34 +574,30 @@ pub unsafe extern "C" fn set_enable_mac_addr_filter(slot: u8, enable: bool) {
     // This will allow packets that match the filter to be queued in our reception queue
     // will also ack them once they arrive
     assert!(slot <= 1);
-    let addr: u32 = WIFI_MAC_ADDR_ACK_ENABLE_SLOT_0 + 8 * slot as u32;
-    let addr = addr as *mut u32;
+    let addr = WIFI_MAC_ADDR_ACK_ENABLE_SLOT_0.offset(8 * slot as isize);
     if enable {
-        write_register(addr, read_register(addr) | 0x10000);
+        addr.xor_with(0x10000);
     } else {
         // TODO: ensure switching ~ for ! is correct
-        write_register(addr, read_register(addr) & !0x10000);
+        addr.and_with(!0x10000);
     }
 }
 
 pub unsafe extern "C" fn set_mac_addr_filter(slot: u8, addr: *mut u8) {
     assert!(slot <= 1);
-    write_register(
-        // This feels like I'm doing something wrong
-        WIFI_MAC_ADDR_SLOT_0.add(slot as usize * 8),
+    // This feels like I'm doing something wrong
+    WIFI_MAC_ADDR_SLOT_0.offset(slot as isize * 8).set(
         addr.read_volatile() as u32
             | (addr.add(1).read_volatile() as u32) << 8
             | (addr.add(2).read_volatile() as u32) << 16
             | (addr.add(3).read_volatile() as u32) << 24,
     );
-    write_register(
-        WIFI_MAC_ADDR_SLOT_0.add(slot as usize * 8 + 4),
-        addr.add(4) as u32 | (addr.add(5).read_volatile() as u32) << 8,
-    );
-    write_register(
-        WIFI_MAC_ADDR_SLOT_0.add(slot as usize * 8 + 8 * 4) as *mut u32,
-        !0,
-    ); // ?
+    WIFI_MAC_ADDR_SLOT_0
+        .offset(slot as isize * 8 + 4)
+        .set(addr.add(4).read() as u32 | (addr.add(5).read_volatile() as u32) << 8);
+    WIFI_MAC_ADDR_SLOT_0
+        .offset(slot as isize * 8 + 8 * 4)
+        .set(!0); // ?
 }
 
 pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut core::ffi::c_void) {
@@ -636,12 +649,14 @@ pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut core::ffi::c_void)
     EspError::from(esp_wifi_start()).map(|x| x.panic());
     warn!("{}, done esp_wifi_start", TAG);
 
-    static mut initframe: [u8; 24] = [
+    static mut initframe: [u8; 37] = [
         0x08, 0x01, 0x00, 0x00, // data frame
         0x4e, 0xed, 0xfb, 0x35, 0x22, 0xa8, // receiver addr
         0x00, 0x23, 0x45, 0x67, 0x89, 0xab, // transmitter
         0x84, 0x2b, 0x2b, 0x4f, 0x89, 0x4f, // destination
         0x00, 0x00, // sequence control
+        0xff, 0x00, 0x00, 0x00, // IEEE 802.2
+        b'i', b'n', b'i', b't', b'f', b'r', b'a', b'm', b'e',
     ];
 
     // Send a packet, to make sure the proprietary stack has fully initialized all hardware
@@ -667,8 +682,6 @@ pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut core::ffi::c_void)
 
     setup_rx_chain();
     info!["RX chain is set up"];
-    setup_tx_buffers();
-    info!["TX buffers are set up"];
 
     unsafe {
         (pvParameter.read()._tx_func_callback)(wifi_hardware_tx_func);
@@ -679,7 +692,7 @@ pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut core::ffi::c_void)
     set_enable_mac_addr_filter(0, true);
     // acking will only happen if the hardware puts the packet in an RX buffer
 
-    let first_part: u32 = read_register(WIFI_MAC_ADDR_SLOT_0.add(4));
+    let first_part: u32 = WIFI_MAC_ADDR_SLOT_0.offset(4).read();
     warn!(
         "{}: addr_p = {:x} {:x}",
         TAG,
@@ -695,6 +708,7 @@ pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut core::ffi::c_void)
                 let cause: u32 = queue_entry.content.rx.interrupt_received;
                 // ESP_LOGW(TAG, "interrupt = 0x%08lx", cause);
                 if cause & 0x800 != 0 {
+
                     // Watchdog panic
                     // TODO process this
                     // TODO what pets this watchdog?
@@ -709,21 +723,19 @@ pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut core::ffi::c_void)
                     handle_rx_messages(pvParameter.as_mut().unwrap()._rx_callback);
                 }
                 if cause & 0x80 != 0 {
-                    // ESP_LOGW(TAG, "lmacPostTxComplete");
+                    processTxComplete();
                 }
                 if cause & 0x80000 != 0 {
-                    // ESP_LOGW(TAG, "lmacProcessAllTxTimeout");
+                    warn!("lmacProcessAllTxTimeout");
                 }
                 if cause & 0x100 != 0 {
-                    // ESP_LOGW(TAG, "lmacProcessCollisions");
+                    warn!("lmacProcessCollisions");
                 }
                 xSemaphoreGive!(rx_queue_resources);
             } else if queue_entry.typ == hardware_queue_entry_type_t::TX_ENTRY {
-                error!("{}: TX from queue", TAG);
+                info!("{}: TX from queue", TAG);
                 // TODO: implement retry
-                // (we might not actually need it, but how do we know a packet has been transmitted and we can recycle its content)
                 transmit_packet(queue_entry.content.tx.packet, queue_entry.content.tx.len);
-                esp_idf_svc::sys::free(queue_entry.content.tx.packet as _);
                 xSemaphoreGive!(tx_queue_resources);
             } else {
                 error!("{}: unknown queue type", TAG);

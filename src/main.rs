@@ -11,6 +11,7 @@ mod c_macro_replacements;
 mod hardware;
 mod mac;
 mod proprietary;
+mod utils;
 mod wifi_80211;
 
 fn main() {
