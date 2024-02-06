@@ -1,10 +1,10 @@
 #![feature(asm_experimental_arch)]
 
-use esp_idf_svc::sys::{vTaskDelay, xTaskCreatePinnedToCore};
+use esp_idf_svc::sys::{esp_netif_init, vTaskDelay, xTaskCreatePinnedToCore};
 
 use crate::{
     hardware::{hardware_mac_args, wifi_hardware_task},
-    mac::{mac_task, open_mac_rx_callback, open_mac_tx_func_callback},
+    mac::{mac_task, open_mac_rx_callback, open_mac_tx_func_callback, openmac_netif_start},
 };
 
 mod c_macro_replacements;
@@ -28,6 +28,10 @@ fn main() {
         _tx_func_callback: open_mac_tx_func_callback,
     };
     unsafe {
+        esp_netif_init();
+    }
+
+    unsafe {
         xTaskCreatePinnedToCore(
             Some(mac_task),
             "open_mac".as_ptr().cast(),
@@ -49,6 +53,10 @@ fn main() {
             /*core*/ 0,
         )
     };
+    unsafe {
+        openmac_netif_start();
+    }
+
     loop {
         unsafe { vTaskDelay(20000) }
     }
