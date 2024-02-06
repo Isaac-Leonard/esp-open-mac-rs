@@ -69,44 +69,45 @@ pub const module_mac_addr: [u8; 6] = [0x00, 0x23, 0x45, 0x67, 0x89, 0xab];
 // So for example, if the MAC_TX_PLCP0 for slot 0 is at 0x3ff73d20
 // then the MAC_TX_PLCP0 for slot 1 will be at 0x3ff73d20 - 2 * 4 = 0x3ff73d18
 
-const MAC_TX_PLCP0_BASE: &Register<u32> = Register::at(0x3ff73d20);
+const MAC_TX_PLCP0_BASE: Register<u32> = Register::at(0x3ff73d20);
 const MAC_TX_PLCP0_OS: i32 = -2;
 
-const WIFI_TX_CONFIG_BASE: &Register<u32> = Register::at(0x3ff73d1c);
+const WIFI_TX_CONFIG_BASE: Register<u32> = Register::at(0x3ff73d1c);
 const WIFI_TX_CONFIG_OS: i32 = -2;
 
-const MAC_TX_PLCP1_BASE: &Register<u32> = Register::at(0x3ff74258);
+const MAC_TX_PLCP1_BASE: Register<u32> = Register::at(0x3ff74258);
 const MAC_TX_PLCP1_OS: i32 = -0xf;
 
-const MAC_TX_PLCP2_BASE: &Register<u32> = Register::at(0x3ff7425c);
+const MAC_TX_PLCP2_BASE: Register<u32> = Register::at(0x3ff7425c);
 const MAC_TX_PLCP2_OS: i32 = -0xf;
 
-const MAC_TX_DURATION_BASE: &Register<u32> = Register::at(0x3ff74268);
+const MAC_TX_DURATION_BASE: Register<u32> = Register::at(0x3ff74268);
 const MAC_TX_DURATION_OS: i32 = -0xf;
 
-const WIFI_DMA_OUTLINK: &Register<u32> = Register::at(0x3ff73d20);
-const WIFI_TX_CONFIG_0: &Register<u32> = Register::at(0x3ff73d1c);
+const WIFI_DMA_OUTLINK: Register<u32> = Register::at(0x3ff73d20);
+const WIFI_TX_CONFIG_0: Register<u32> = Register::at(0x3ff73d1c);
 
-const MAC_TX_PLCP1: &Register<u32> = Register::at(0x3ff74258);
-const MAC_TX_PLCP2: &Register<u32> = Register::at(0x3ff7425c);
-const MAC_TX_DURATION: &Register<u32> = Register::at(0x3ff74268);
+const MAC_TX_PLCP1: Register<u32> = Register::at(0x3ff74258);
+const MAC_TX_PLCP2: Register<u32> = Register::at(0x3ff7425c);
+const MAC_TX_DURATION: Register<u32> = Register::at(0x3ff74268);
 
-const WIFI_DMA_INT_STATUS: &Register<u32> = Register::at(0x3ff73c48);
-const WIFI_DMA_INT_CLR: &Register<u32> = Register::at(0x3ff73c4c);
+const WIFI_DMA_INT_STATUS: Register<u32> = Register::at(0x3ff73c48);
+const WIFI_DMA_INT_CLR: Register<u32> = Register::at(0x3ff73c4c);
 
-const WIFI_MAC_BITMASK_084: &Register<u32> = Register::at(0x3ff73084 as _);
-const WIFI_NEXT_RX_DSCR: &Register<u32> = Register::at(0x3ff7308c);
-const WIFI_LAST_RX_DSCR: &Register<u32> = Register::at(0x3ff73090);
-const WIFI_BASE_RX_DSCR: &Register<u32> = Register::at(0x3ff73088);
-const WIFI_TXQ_GET_STATE_COMPLETE: &Register<u32> = Register::at(0x3ff73cc8);
-const WIFI_TXQ_CLR_STATE_COMPLETE: &Register<u32> = Register::at(0x3ff73cc4);
+const WIFI_MAC_BITMASK_084: Register<u32> = Register::at(0x3ff73084 as _);
+const WIFI_NEXT_RX_DSCR: Register<u32> = Register::at(0x3ff7308c);
+const WIFI_LAST_RX_DSCR: Register<u32> = Register::at(0x3ff73090);
+const WIFI_BASE_RX_DSCR: Register<u32> = Register::at(0x3ff73088);
+const WIFI_TXQ_GET_STATE_COMPLETE: Register<u32> = Register::at(0x3ff73cc8);
+const WIFI_TXQ_CLR_STATE_COMPLETE: Register<u32> = Register::at(0x3ff73cc4);
 
 // Collision or timeout
-const WIFI_TXQ_GET_STATE_ERROR: &Register<u32> = Register::at(0x3ff73ccc0);
-const WIFI_TXQ_CLR_STATE_ERROR: &Register<u32> = Register::at(0x3ff73ccbc);
+// These were in the original code but both aren't referenced anywhere and are larger than a u32, u32 is the size of a pointer on this platform and so these are likely invalid memory addresses
+// const WIFI_TXQ_GET_STATE_ERROR: Register<u32> = Register::at(0x3ff73ccc0);
+// const WIFI_TXQ_CLR_STATE_ERROR: Register<u32> = Register::at(0x3ff73ccbc);
 
-const WIFI_MAC_ADDR_SLOT_0: &Register<u32> = Register::at(0x3ff73040);
-const WIFI_MAC_ADDR_ACK_ENABLE_SLOT_0: &Register<u32> = Register::at(0x3ff73064);
+const WIFI_MAC_ADDR_SLOT_0: Register<u32> = Register::at(0x3ff73040);
+const WIFI_MAC_ADDR_ACK_ENABLE_SLOT_0: Register<u32> = Register::at(0x3ff73064);
 
 #[repr(C, packed)]
 #[derive(Debug, Clone)]
@@ -120,8 +121,8 @@ pub struct dma_list_item {
     packet: *mut core::ffi::c_void,
     next: *mut dma_list_item,
 }
-impl Default for dma_list_item {
-    fn default() -> Self {
+impl dma_list_item {
+    const fn zeroed() -> Self {
         Self {
             size: 0,
             length: 0,
@@ -167,8 +168,8 @@ pub struct tx_queue_entry_t {
     packet: *mut u8,
     len: u32,
 }
-impl Default for tx_queue_entry_t {
-    fn default() -> Self {
+impl tx_queue_entry_t {
+    const fn zeroed() -> Self {
         Self {
             packet: null_mut(),
             len: 0,
@@ -209,21 +210,27 @@ struct tx_hardware_slot_t {
     packet: tx_queue_entry_t,
     in_use: bool,
 }
-impl Default for tx_hardware_slot_t {
-    fn default() -> Self {
+impl tx_hardware_slot_t {
+    const fn zeroed() -> Self {
         tx_hardware_slot_t {
             // dma_list_item must be 4-byte aligned (it's passed to hardware that only takes those addresses)
             _alignment: [],
             // This is meant to have alignment of 4 but rust-analyzer tells me its got alignment 1
             // TODO: investigate further
-            dma: dma_list_item::default(),
+            dma: dma_list_item::zeroed(),
 
-            packet: tx_queue_entry_t::default(),
+            packet: tx_queue_entry_t::zeroed(),
             in_use: false,
         }
     }
 }
-static mut tx_slots: [tx_hardware_slot_t; TX_SLOT_CNT as usize] = Default::default();
+static mut tx_slots: [tx_hardware_slot_t; TX_SLOT_CNT as usize] = [
+    tx_hardware_slot_t::zeroed(),
+    tx_hardware_slot_t::zeroed(),
+    tx_hardware_slot_t::zeroed(),
+    tx_hardware_slot_t::zeroed(),
+    tx_hardware_slot_t::zeroed(),
+];
 
 pub static mut last_transmit_timestamp: u64 = 0;
 pub static mut seqnum: u32 = 0;
@@ -459,7 +466,7 @@ pub unsafe extern "C" fn setup_rx_chain() {
     let mut prev: *mut dma_list_item = ptr::null_mut();
     for i in 0..RX_BUFFER_AMOUNT {
         // Malloc fails for this for some reason but works perfectly fine later
-        let mut item = Box::new(MaybeUninit::<dma_list_item>::uninit().assume_init());
+        let mut item = Box::new(dma_list_item::zeroed());
         info!("after box");
         item.has_data = 0;
         item.owner = 1;
@@ -583,7 +590,7 @@ pub unsafe extern "C" fn set_enable_mac_addr_filter(slot: u8, enable: bool) {
     }
 }
 
-pub unsafe extern "C" fn set_mac_addr_filter(slot: u8, addr: *mut u8) {
+pub unsafe extern "C" fn set_mac_addr_filter(slot: u8, addr: *const u8) {
     assert!(slot <= 1);
     // This feels like I'm doing something wrong
     WIFI_MAC_ADDR_SLOT_0.offset(slot as isize * 8).set(
@@ -688,7 +695,7 @@ pub unsafe extern "C" fn wifi_hardware_task(pvParameter: *mut core::ffi::c_void)
     }
     warn!("Starting to receive messages");
 
-    set_mac_addr_filter(0, module_mac_addr.as_mut_ptr());
+    set_mac_addr_filter(0, module_mac_addr.as_ptr());
     set_enable_mac_addr_filter(0, true);
     // acking will only happen if the hardware puts the packet in an RX buffer
 
